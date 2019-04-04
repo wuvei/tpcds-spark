@@ -79,3 +79,22 @@ parse_args_for_spark_submit() {
   done
 }
 
+find_output(){
+  OUTPUT=$_DIR/../data/
+  SCL=1
+  while [ ! -z "$1" ]; do
+    if [[ "$1" == "--output-location" ]]; then
+      shift
+      OUTPUT=($1)
+      mkdir -p $OUTPUT
+    elif [[ "$1" == "--scale-factor" ]]; then
+      shift
+      SCL=($1)
+    fi
+    shift
+  done
+
+  if [[ "$OUTPUT" == "$_DIR/../data/" ]]; then
+    mkdir -p $OUTPUT
+  fi
+}

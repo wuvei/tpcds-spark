@@ -5,8 +5,10 @@ import java.util.Locale
 
 class TPCDSQueryArguments(val args: Array[String]) {
   var dataLocation: String = null
-  var queryFilter: Set[String] = Set.empty
-
+//  var queryFilter: Set[String] = Set.empty
+  var query14Filter: Set[String] = Set.empty
+  var query27Filter: Set[String] = Set.empty
+  var isFilter: Boolean = false
   parseArgs(args.toList)
   validateArguments()
 
@@ -16,7 +18,7 @@ class TPCDSQueryArguments(val args: Array[String]) {
 
   private def parseArgs(inputArgs: List[String]): Unit = {
     var args = inputArgs
-
+    val map3 = scala.collection.mutable.Map.empty[String, Int]
     while (args.nonEmpty) {
       args match {
         case optName :: value :: tail if optionMatch("--data-location", optName) =>
@@ -24,7 +26,12 @@ class TPCDSQueryArguments(val args: Array[String]) {
           args = tail
 
         case optName :: value :: tail if optionMatch("--query-filter", optName) =>
-          queryFilter = value.toLowerCase(Locale.ROOT).split(",").map(_.trim).toSet
+//          queryFilter = value.toLowerCase(Locale.ROOT).split(",").map(_.trim).toSet
+          query14Filter = value.toLowerCase(Locale.ROOT).split(",").map(_.trim).filter(p =>
+                    !p.split('-').contains("27")).map(p => p.split('-')(0)).toSet
+          query27Filter = value.toLowerCase(Locale.ROOT).split(",").map(_.trim).filter(p =>
+                      !p.split('-').contains("14")).map(p => p.split('-')(0)).toSet
+          isFilter = true
           args = tail
 
         case _ =>

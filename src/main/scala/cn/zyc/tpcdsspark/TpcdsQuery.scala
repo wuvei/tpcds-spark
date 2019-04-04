@@ -29,6 +29,23 @@ object TpcdsQuery {
           .appName("TPC-DS Query")
           .getOrCreate()
 
+  def dropDuplicate(df: DataFrame): DataFrame = {
+    val oriCol = df.columns
+    val dis = oriCol.distinct
+    val dup = oriCol.diff(dis)
+    val recordMap = scala.collection.mutable.Map.empty[String, Int]
+    for(ele <- dup){
+      recordMap += (ele -> 0)
+    }
+    for(i <- oriCol.indices){
+      if(recordMap.contains(oriCol(i)) && recordMap(oriCol(i)) == 0){
+        recordMap(oriCol(i)) = 1
+        oriCol(i) = oriCol(i) + "--suffix--"
+      }
+    }
+    val dfNew = df.toDF(oriCol:_*)
+    dfNew.drop(dup:_*).toDF(dis:_*)
+  }
 
   def outputDF(df: DataFrame, outputDir: String, className: String): Unit = {
 
@@ -36,6 +53,7 @@ object TpcdsQuery {
       df.collect().foreach(println)
     else
       //df.write.mode("overwrite").json(outputDir + "/" + className + ".out") // json to avoid alias
+
       df.write.mode("overwrite").format("com.databricks.spark.csv").option("header", "true").save(outputDir + "/" + className)
   }
 
@@ -69,7 +87,13 @@ object TpcdsQuery {
       + s"/$queryLocation/$name.sql")
       val queryString = sqlFile.mkString
 
-      outputDF(spark.sql(queryString), OUTPUT_DIR, s"$name$nameSuffix")
+//      val q = spark.sql(queryString)
+//      val q1 = dropDuplicate(q)
+//      val ou = new PrintWriter("/Users/zyc/Documents/code/tpcds-spark/debug.out")
+//      ou.println(q.columns.toList)
+//      ou.println(q1.columns.toList)
+//      ou.close()
+      outputDF(dropDuplicate(spark.sql(queryString)), OUTPUT_DIR, s"$name$nameSuffix")
 
       val t1 = System.nanoTime()
 
@@ -81,9 +105,9 @@ object TpcdsQuery {
 
   def filterQueries(
       origQueries: Seq[String],
-      args: TPCDSQueryArguments): Seq[String] = {
-    if (args.queryFilter.nonEmpty) {
-      origQueries.filter(args.queryFilter.contains)
+      queryFilter: Set[String], isFilter:Boolean): Seq[String] = {
+    if (isFilter) {
+      origQueries.filter(queryFilter.contains)
     } else {
       origQueries
     }
@@ -121,12 +145,13 @@ object TpcdsQuery {
       "q80a", "q86a", "q98")
 
     // If `--query-filter` defined, filters the queries that this option selects
-    val queriesV1_4ToRun = filterQueries(tpcdsQueries, tpcdsArgs)
-    val queriesV2_7ToRun = filterQueries(tpcdsQueriesV2_7, tpcdsArgs)
+    val queriesV1_4ToRun = filterQueries(tpcdsQueries, tpcdsArgs.query14Filter, tpcdsArgs.isFilter)
+    val queriesV2_7ToRun = filterQueries(tpcdsQueriesV2_7, tpcdsArgs.query27Filter, tpcdsArgs.isFilter)
 
     if ((queriesV1_4ToRun ++ queriesV2_7ToRun).isEmpty) {
       throw new RuntimeException(
-        s"Empty queries to run. Bad query name filter: ${tpcdsArgs.queryFilter}")
+        s"Empty queries to run. Bad query name filter: v1.4: ${tpcdsArgs.query14Filter}\n" +
+          s"v2.7: ${tpcdsArgs.query27Filter}")
     }
     
     val tableSizes = setupTables(tpcdsArgs.dataLocation)

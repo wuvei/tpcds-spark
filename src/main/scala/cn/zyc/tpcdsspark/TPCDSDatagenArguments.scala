@@ -33,6 +33,8 @@ class TPCDSDatagenArguments(val args: Array[String]) {
   var filterOutNullPartitionValues = false
   var tableFilter: Set[String] = Set.empty
   var numPartitions = "100"
+//  var table14Filter: Set[String] = Set.empty
+//  var table27Filter: Set[String] = Set.empty
 
   parseArgs(args.toList)
   validateArguments()

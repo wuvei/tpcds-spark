@@ -1,19 +1,18 @@
 package cn.zyc.tpcdsspark
 
-import scala.sys.process._
-import org.apache.spark.sql._
-import org.apache.spark.sql.types._
-import org.apache.spark.sql.functions._
-import java.io.PrintWriter
 import java.io.File
 
 import org.apache.spark.rdd.RDD
-import org.xerial.snappy.OSInfo
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types._
+
+
 
 /**
- * This class was copied from `spark-sql-perf` and modified slightly.
- */
-class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
+  * This class was copied from `spark-sql-perf` and modified slightly.
+  */
+class Tables2(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
   import sqlContext.implicits._
 
   private def sparkContext = sqlContext.sparkContext
@@ -26,31 +25,17 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
     }
 
     /**
-     *  If convertToSchema is true, the data from generator will be parsed into columns and
-     *  converted to `schema`. Otherwise, it just outputs the raw data (as a single STRING column).
-     */
-    def df(convertToSchema: Boolean, numPartition: Int): DataFrame = {
+      *  If convertToSchema is true, the data from generator will be parsed into columns and
+      *  converted to `schema`. Otherwise, it just outputs the raw data (as a single STRING column).
+      */
+    def df(convertToSchema: Boolean, numPartition: Int, location: String): DataFrame = {
       val partitions = if (partitionColumns.isEmpty) 1 else numPartition
 
-      val generatedData: RDD[String] =
-      {
-        sparkContext.parallelize(1 to partitions, partitions).flatMap { i =>
+      val dirArray = System.getProperty("user.dir").split("/")
+      val projDir = dirArray.slice(0, dirArray.size - 1).mkString("/")
 
-          val dirArray = System.getProperty("user.dir").split("/")
-          val projDir = dirArray.slice(0, dirArray.size - 1).mkString("/")
+      val generatedData = sparkContext.textFile(s"${location}/${name}.dat")
 
-          // Note: RNGSEED is the RNG seed used by the data generator. Right now, it is fixed to 100
-          val parallel = if (partitions > 1) s"-parallel $partitions -child $i" else ""
-
-          val commands = Seq(
-            "bash", "-c",
-            s"cd ${projDir}/tpcds-kit/tools && ./dsdgen -table $name -filter Y " +
-              s"-scale $scaleFactor $parallel"
-          )
-
-          commands.lines
-        }
-      }
 
       generatedData.setName(s"$name, sf=$scaleFactor, strings")
 
@@ -79,7 +64,7 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
             StructType(schema.fields.map(f => StructField(f.name, StringType))))
 
         val convertedData = {
-          val columns = schema.fields.map { f => 
+          val columns = schema.fields.map { f =>
             col(f.name).cast(f.dataType).as(f.name)
           }
           stringData.select(columns: _*)
@@ -104,15 +89,15 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
     }
 
     def genData(
-        location: String,
-        format: String,
-        overwrite: Boolean,
-        clusterByPartitionColumns: Boolean,
-        filterOutNullPartitionValues: Boolean,
-        numPartitions: Int): Unit = {
+                 location: String,
+                 format: String,
+                 overwrite: Boolean,
+                 clusterByPartitionColumns: Boolean,
+                 filterOutNullPartitionValues: Boolean,
+                 numPartitions: Int): Unit = {
       val mode = if (overwrite) SaveMode.Overwrite else SaveMode.Ignore
 
-      val data = df(format != "text", numPartitions)
+      val data = df(format != "text", numPartitions, location)
       val tempTableName = s"${name}_text"
       data.createOrReplaceTempView(tempTableName)
 
@@ -130,13 +115,13 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
 
           val query =
             s"""
-              |SELECT
-              |  $columnString
-              |FROM
-              |  $tempTableName
-              |$predicates
-              |DISTRIBUTE BY
-              |  $partitionColumnString
+               |SELECT
+               |  $columnString
+               |FROM
+               |  $tempTableName
+               |$predicates
+               |DISTRIBUTE BY
+               |  $partitionColumnString
             """.stripMargin
           val grouped = sqlContext.sql(query)
           grouped.write
@@ -152,13 +137,19 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
       if (partitionColumns.nonEmpty) {
         writer.partitionBy(partitionColumns : _*)
       }
-      writer.save(location)
+      writer.save(s"${location}/${name}")
       sqlContext.dropTempTable(tempTableName)
 
+      val dirArray = System.getProperty("user.dir").split("/")
+      val projDir = dirArray.slice(0, dirArray.size - 1).mkString("/")
+      val path: File = new File(s"${location}/${name}.dat")
+      if (path.isFile()) {
+        path.delete()
+      }
     }
 
     def createExternalTable(
-        location: String, format: String, databaseName: String, overwrite: Boolean): Unit = {
+                             location: String, format: String, databaseName: String, overwrite: Boolean): Unit = {
       val qualifiedTableName = databaseName + "." + name
       val tableExists = sqlContext.tableNames(databaseName).contains(name)
       if (overwrite) {
@@ -175,15 +166,15 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
   }
 
   def genData(
-      location: String,
-      format: String,
-      overwrite: Boolean,
-      partitionTables: Boolean,
-      useDoubleForDecimal: Boolean,
-      clusterByPartitionColumns: Boolean,
-      filterOutNullPartitionValues: Boolean,
-      tableFilter: Set[String] = Set.empty,
-      numPartitions: Int = 100): Unit = {
+               location: String,
+               format: String,
+               overwrite: Boolean,
+               partitionTables: Boolean,
+               useDoubleForDecimal: Boolean,
+               clusterByPartitionColumns: Boolean,
+               filterOutNullPartitionValues: Boolean,
+               tableFilter: Set[String] = Set.empty,
+               numPartitions: Int = 100): Unit = {
     var tablesToBeGenerated = if (partitionTables) {
       tables
     } else {
@@ -205,7 +196,7 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
 
     withSpecifiedDataType.foreach { table =>
       val tableLocation = s"$location/${table.name}"
-      table.genData(tableLocation, format, overwrite, clusterByPartitionColumns,
+      table.genData(location, format, overwrite, clusterByPartitionColumns,
         filterOutNullPartitionValues, numPartitions)
     }
   }
@@ -689,12 +680,12 @@ class Tables(sqlContext: SQLContext, scaleFactor: Int) extends Serializable {
   // scalastyle:on
 }
 
-object TPCDSDatagen {
 
+object TpcdsDatagen3 {
   def main(args: Array[String]): Unit = {
     val datagenArgs = new TPCDSDatagenArguments(args)
     val spark = SparkSession.builder.getOrCreate()
-    val tpcdsTables = new Tables(spark.sqlContext, datagenArgs.scaleFactor.toInt)
+    val tpcdsTables = new Tables2(spark.sqlContext, datagenArgs.scaleFactor.toInt)
     tpcdsTables.genData(
       datagenArgs.outputLocation,
       datagenArgs.format,
